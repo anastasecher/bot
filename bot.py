@@ -6,8 +6,10 @@ import asyncio
 import gspread
 import json
 from datetime import datetime
+from aiohttp import web
 from oauth2client.service_account import ServiceAccountCredentials
 from aiogram import Bot, Dispatcher, types
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler
 from aiogram.filters import Command
 from aiogram.types import (
     ReplyKeyboardMarkup, KeyboardButton,
@@ -16,6 +18,7 @@ from aiogram.types import (
 
 # --- Load sensitive values from environment variables ---
 TOKEN = os.getenv("BOT_TOKEN")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")
 SHEET_STANDARD_ID = os.getenv("SHEET_STANDARD_ID")
 SHEET_KIA_ID = os.getenv("SHEET_KIA_ID")
@@ -65,7 +68,6 @@ sheet_kia = client.open_by_key(SHEET_KIA_ID).sheet1
 sheet_lexus = client.open_by_key(SHEET_LEXUS_ID).sheet1
 
 user_state = {}
-
 
 def set_owner_if_needed(user: types.User):
     global OWNER_ID
@@ -250,7 +252,19 @@ async def default_start(message: types.Message):
 
 async def main():
     logging.basicConfig(level=logging.INFO)
-    await dp.start_polling(bot)
+    app = web.Application()
+    SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path="/webhook")
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, port=8080)
+    await site.start()
+    await bot.set_webhook(WEBHOOK_URL)
+    print("Webhook set and server running at port 8080")
+    try:
+        await asyncio.Event().wait()
+    finally:
+        await bot.delete_webhook()
+        await runner.cleanup()
 
 if __name__ == "__main__":
     asyncio.run(main())
